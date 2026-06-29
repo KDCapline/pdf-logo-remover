@@ -60,3 +60,6 @@ export type Theme = "light" | "dark" | "system";
 export const DEFAULT_SETTINGS: ProcessingSettings = {
   concurrency: 3,
 };
+
+/** Maximum number of PDFs allowed in the queue at one time. */
+export const MAX_PDFS = 50;

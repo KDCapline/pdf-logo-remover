@@ -7,7 +7,7 @@ import { Dropzone } from "@/components/UploadArea/Dropzone";
 import { useAppStore } from "@/store/useAppStore";
 import { loadPdf, getPageCount, renderPageThumbnail } from "@/services/pdfRenderer";
 import { uid } from "@/utils/pdf";
-import type { PDFFileItem } from "@/types";
+import { MAX_PDFS, type PDFFileItem } from "@/types";
 import { toast } from "sonner";
 
 const PDF_ACCEPT = {
@@ -32,6 +32,7 @@ function buildItem(file: File): PDFFileItem {
 export function PdfDropzone() {
   const addFiles = useAppStore((state) => state.addFiles);
   const updateFile = useAppStore((state) => state.updateFile);
+  const currentCount = useAppStore((state) => state.files.length);
 
   const loadMetadata = useCallback(
     async (item: PDFFileItem): Promise<void> => {
@@ -63,11 +64,28 @@ export function PdfDropzone() {
 
   const onFiles = useCallback(
     (files: File[]): void => {
-      const items = files.map(buildItem);
+      const remaining = MAX_PDFS - currentCount;
+
+      if (remaining <= 0) {
+        toast.warning(
+          `You've reached the ${MAX_PDFS}-PDF limit. Remove some files before adding more.`,
+        );
+        return;
+      }
+
+      let incoming = files;
+      if (files.length > remaining) {
+        toast.warning(
+          `You can upload up to ${MAX_PDFS} PDFs at once. Added the first ${remaining}, skipped ${files.length - remaining}.`,
+        );
+        incoming = files.slice(0, remaining);
+      }
+
+      const items = incoming.map(buildItem);
       addFiles(items);
       for (const item of items) void loadMetadata(item);
     },
-    [addFiles, loadMetadata],
+    [addFiles, loadMetadata, currentCount],
   );
 
   return (
