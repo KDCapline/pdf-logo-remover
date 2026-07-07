@@ -61,6 +61,7 @@ function StatusIcon({ status }: { status: FileStatus }) {
 
 interface RowProps {
   item: PDFFileItem;
+  serial: number;
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
@@ -76,6 +77,7 @@ interface RowProps {
 
 function Row({
   item,
+  serial,
   selected,
   onSelect,
   onRemove,
@@ -111,6 +113,12 @@ function Row({
       <div className="cursor-grab text-muted-foreground transition-colors hover:text-foreground" aria-hidden>
         <GripVertical className="h-4 w-4" />
       </div>
+      <span
+        className="w-6 shrink-0 text-center text-xs font-semibold tabular-nums text-muted-foreground"
+        title={`File ${serial}`}
+      >
+        {serial}
+      </span>
       <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted shadow-sm">
         {item.thumbnailUrl ? (
           <img
@@ -302,6 +310,7 @@ export function FileList() {
             <Row
               key={item.id}
               item={item}
+              serial={files.findIndex((f) => f.id === item.id) + 1}
               selected={item.id === selectedFileId}
               onSelect={() => setSelectedFileId(item.id)}
               onRemove={() => removeFile(item.id)}

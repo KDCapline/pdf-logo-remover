@@ -7,10 +7,11 @@ import type {
   PDFFileItem,
   ProcessingSettings,
   Rectangle,
+  RejectedFile,
   ReportItem,
   Theme,
 } from "@/types";
-import { DEFAULT_SETTINGS } from "@/types";
+import { DEFAULT_SETTINGS, MAX_PDFS } from "@/types";
 
 interface AppState {
   // Files
@@ -18,6 +19,12 @@ interface AppState {
   addFiles: (files: PDFFileItem[]) => void;
   removeFile: (id: string) => void;
   clearFiles: () => void;
+
+  // Rejected files (not accepted into the queue, e.g. over the limit)
+  rejectedFiles: RejectedFile[];
+  addRejected: (files: RejectedFile[]) => void;
+  removeRejected: (id: string) => void;
+  clearRejected: () => void;
   setFiles: (files: PDFFileItem[]) => void;
   updateFile: (id: string, patch: Partial<PDFFileItem>) => void;
   setFileStatus: (id: string, status: FileStatus) => void;
@@ -75,10 +82,24 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       files: [],
       addFiles: (incoming) =>
-        set((state) => ({ files: [...state.files, ...incoming] })),
+        set((state) => {
+          // Hard cap: never let the queue exceed MAX_PDFS, regardless of caller.
+          const room = Math.max(0, MAX_PDFS - state.files.length);
+          const accepted = room > 0 ? incoming.slice(0, room) : [];
+          return { files: [...state.files, ...accepted] };
+        }),
       removeFile: (id) =>
         set((state) => ({ files: state.files.filter((f) => f.id !== id) })),
       clearFiles: () => set({ files: [] }),
+
+      rejectedFiles: [],
+      addRejected: (incoming) =>
+        set((state) => ({ rejectedFiles: [...state.rejectedFiles, ...incoming] })),
+      removeRejected: (id) =>
+        set((state) => ({
+          rejectedFiles: state.rejectedFiles.filter((f) => f.id !== id),
+        })),
+      clearRejected: () => set({ rejectedFiles: [] }),
       setFiles: (files) => set({ files }),
       updateFile: (id, patch) =>
         set((state) => ({
@@ -154,4 +175,11 @@ export const useAppStore = create<AppState>()(
 );
 
 // Re-export commonly used types for convenience.
-export type { PDFFileItem, ProcessingSettings, Rectangle, ReportItem, Theme };
+export type {
+  PDFFileItem,
+  ProcessingSettings,
+  Rectangle,
+  RejectedFile,
+  ReportItem,
+  Theme,
+};

@@ -10,6 +10,7 @@ import type {
 } from "@/types";
 import { loadPdf, renderPageToCanvas, getPageCount } from "@/services/pdfRenderer";
 import { replaceLogoInPdf } from "@/services/pdfEditor";
+import { findLogoPages } from "@/services/logoMatcher";
 import { releaseCanvas } from "@/utils/canvas";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -68,7 +69,7 @@ export function usePDFProcessor(): {
         const pageCount = await getPageCount(doc);
         await doc.cleanup();
 
-        const selectedPages: number[] =
+        const candidatePages: number[] =
           item.selectedPages && item.selectedPages.length > 0
             ? item.selectedPages
             : Array.from({ length: pageCount }, (_, i) => i);
@@ -77,13 +78,38 @@ export function usePDFProcessor(): {
           throw new Error("canceled");
         }
 
-        updateFile({ currentPage: selectedPages[0] ?? 0 });
+        // Content-aware filter: only keep pages whose logo region actually
+        // matches the reference region drawn on the first page. This prevents
+        // covering text/graphics on pages that don't contain the logo.
+        const referencePage = candidatePages.includes(0) ? 0 : candidatePages[0];
+        const matchedPages = await findLogoPages(
+          item.file,
+          rect,
+          candidatePages,
+          referencePage,
+          signal,
+        );
+
+        if (signal.canceled) {
+          throw new Error("canceled");
+        }
+
+        if (matchedPages.length === 0) {
+          const report: ReportItem = {
+            name: item.name,
+            status: "skipped",
+            reason: "Logo not found on any page",
+          };
+          return report;
+        }
+
+        updateFile({ currentPage: matchedPages[0] ?? 0 });
 
         const { blob, matched } = await replaceLogoInPdf(
           item.file,
           newLogo,
           rect,
-          selectedPages,
+          matchedPages,
           signal,
         );
 
@@ -98,7 +124,7 @@ export function usePDFProcessor(): {
           const report: ReportItem = {
             name: item.name,
             status: "skipped",
-            reason: "No pages matched",
+            reason: "Logo not found on any page",
           };
           return report;
         }
@@ -106,6 +132,7 @@ export function usePDFProcessor(): {
         const report: ReportItem = {
           name: item.name,
           status: "processed",
+          reason: `Logo replaced on ${matched} of ${candidatePages.length} page${candidatePages.length === 1 ? "" : "s"}`,
         };
         return report;
       } catch (err: unknown) {

@@ -55,6 +55,15 @@ export interface ReportItem {
   durationMs?: number;
 }
 
+/** A file that was not accepted into the queue (e.g. exceeds the limit). */
+export interface RejectedFile {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  reason: string;
+}
+
 export type Theme = "light" | "dark" | "system";
 
 export const DEFAULT_SETTINGS: ProcessingSettings = {
