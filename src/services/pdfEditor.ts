@@ -128,15 +128,10 @@ function applyRotation(
 }
 
 /**
- * Replace a logo across selected pages of a PDF using a single user-drawn
- * rect. The same rect is applied to every page in `selectedPages` (or every
- * page when empty). The original content under the rect is covered with a
- * white rectangle, then the new logo is contain-fit into the rect (preserving
- * the new logo's aspect ratio).
- *
- * Note: the rect is in PDF units of the page it was drawn on. PDFs with
- * different page sizes will receive the rect at the same coordinates, which
- * may not correspond to the same visual position.
+ * Replace logos on specific pages of a PDF. Only pages present in
+ * `pageRects` are modified; each page may have its own rectangle.
+ * The original content under each rect is covered with a white rectangle,
+ * then the new logo is contain-fit into the rect (preserving aspect ratio).
  */
 export interface CancelSignal {
   canceled: boolean;
@@ -145,8 +140,7 @@ export interface CancelSignal {
 export async function replaceLogoInPdf(
   file: File,
   newLogo: LogoImage,
-  rect: Rectangle,
-  selectedPages: number[],
+  pageRects: Record<number, Rectangle>,
   signal?: CancelSignal,
 ): Promise<ReplaceResult> {
   if (signal?.canceled) throw new Error("canceled");
@@ -156,16 +150,18 @@ export async function replaceLogoInPdf(
   const { image: newImg, width: imgW, height: imgH } = await embedLogo(pdf, newLogo);
 
   const totalPageCount = pdf.getPageCount();
-  const pages =
-    selectedPages.length > 0
-      ? selectedPages.slice().sort((a, b) => a - b)
-      : Array.from({ length: totalPageCount }, (_, i) => i);
+  const pages = Object.keys(pageRects)
+    .map((k) => Number.parseInt(k, 10))
+    .filter((i) => Number.isFinite(i))
+    .sort((a, b) => a - b);
 
   let matched = 0;
   const skippedPages: number[] = [];
 
   for (const pageIndex of pages) {
     if (signal?.canceled) throw new Error("canceled");
+    const rect = pageRects[pageIndex];
+    if (!rect) continue;
     if (pageIndex < 0 || pageIndex >= totalPageCount) {
       skippedPages.push(pageIndex);
       continue;

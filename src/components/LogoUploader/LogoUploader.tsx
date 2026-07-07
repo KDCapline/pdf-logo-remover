@@ -68,7 +68,7 @@ export function LogoUploader() {
           accept={LOGO_ACCEPT}
           onFiles={(f) => void onFiles(f)}
           label="Upload new logo"
-          hint="PNG, JPG or SVG — applied to every page"
+          hint="PNG, JPG or SVG — placed in each marked area"
           icon={<ImagePlus className="h-5 w-5" />}
         />
       ) : (

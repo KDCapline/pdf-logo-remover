@@ -31,13 +31,14 @@ interface AppState {
   setSelectedPages: (id: string, pages: number[]) => void;
   togglePage: (id: string, pageIndex: number) => void;
 
-  // New logo + the single global rect applied to every page of every PDF.
+  // New logo + per-page replacement rects (only marked pages are replaced).
   newLogo: LogoImage | null;
   setNewLogo: (logo: LogoImage | null) => void;
   clearNewLogo: () => void;
-  replacementRect: Rectangle | null;
-  setReplacementRect: (rect: Rectangle) => void;
-  clearReplacementRect: () => void;
+  replacementRectsByPage: Record<number, Rectangle>;
+  setReplacementRectForPage: (pageIndex: number, rect: Rectangle) => void;
+  clearReplacementRectForPage: (pageIndex: number) => void;
+  clearReplacementRects: () => void;
 
   // Settings
   settings: ProcessingSettings;
@@ -131,9 +132,21 @@ export const useAppStore = create<AppState>()(
       newLogo: null,
       setNewLogo: (logo) => set({ newLogo: logo }),
       clearNewLogo: () => set({ newLogo: null }),
-      replacementRect: null,
-      setReplacementRect: (rect) => set({ replacementRect: rect }),
-      clearReplacementRect: () => set({ replacementRect: null }),
+      replacementRectsByPage: {},
+      setReplacementRectForPage: (pageIndex, rect) =>
+        set((state) => ({
+          replacementRectsByPage: {
+            ...state.replacementRectsByPage,
+            [pageIndex]: rect,
+          },
+        })),
+      clearReplacementRectForPage: (pageIndex) =>
+        set((state) => {
+          const next = { ...state.replacementRectsByPage };
+          delete next[pageIndex];
+          return { replacementRectsByPage: next };
+        }),
+      clearReplacementRects: () => set({ replacementRectsByPage: {} }),
 
       settings: { ...DEFAULT_SETTINGS },
       setConcurrency: (concurrency) =>

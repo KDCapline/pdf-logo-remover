@@ -1,5 +1,5 @@
 // PdfPreview: renders the selected file's current page into a canvas with
-// an overlay showing the single global replacement rect (blue). Supports
+// an overlay showing that page's replacement rect (blue). Supports
 // zoom, fit-width, page navigation, keyboard shortcuts, and drag-to-edit
 // the rect (create / move / resize).
 import {
@@ -77,8 +77,10 @@ function pointInHandle(px: number, py: number, r: Rectangle): boolean {
 }
 
 export function PdfPreview({ item }: PdfPreviewProps) {
-  const replacementRect = useAppStore((state) => state.replacementRect);
-  const setReplacementRect = useAppStore((state) => state.setReplacementRect);
+  const replacementRectsByPage = useAppStore((state) => state.replacementRectsByPage);
+  const setReplacementRectForPage = useAppStore(
+    (state) => state.setReplacementRectForPage,
+  );
   const { renderPageForPreview } = usePDFProcessor();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -114,6 +116,12 @@ export function PdfPreview({ item }: PdfPreviewProps) {
   // Initialize page input on mount / when the page index changes externally.
   useEffect(() => {
     setPageInput(String(pageIndex + 1));
+  }, [pageIndex]);
+
+  // Clear any in-progress drag when switching pages.
+  useEffect(() => {
+    dragRef.current = null;
+    setDraftRect(null);
   }, [pageIndex]);
 
   // Clamp page index when pageCount becomes known.
@@ -216,9 +224,9 @@ export function PdfPreview({ item }: PdfPreviewProps) {
     return () => ro.disconnect();
   }, []);
 
-  // draftRect (in-progress drag) takes priority so the user sees live updates;
-  // otherwise show the single global replacement rect (same on every page).
-  const effectiveRect: Rectangle | null = draftRect ?? replacementRect ?? null;
+  // draftRect (in-progress drag) takes priority; otherwise show this page's rect only.
+  const pageRect = replacementRectsByPage[pageIndex] ?? null;
+  const effectiveRect: Rectangle | null = draftRect ?? pageRect ?? null;
 
   // Convert a rect from PDF units (scale=1) to canvas pixels at current zoom.
   const toCanvas = useCallback(
@@ -420,11 +428,11 @@ export function PdfPreview({ item }: PdfPreviewProps) {
     dragRef.current = null;
     setDraftRect((current) => {
       if (current && current.width > 1 && current.height > 1) {
-        setReplacementRect(current);
+        setReplacementRectForPage(pageIndex, current);
       }
       return null;
     });
-  }, [setReplacementRect]);
+  }, [pageIndex, setReplacementRectForPage]);
 
   const onPointerUp = useCallback(
     (e: ReactPointerEvent<HTMLCanvasElement>): void => {
@@ -510,7 +518,7 @@ export function PdfPreview({ item }: PdfPreviewProps) {
         </div>
         {!effectiveRect && (
           <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-background/80 px-2 py-1 text-xs text-muted-foreground">
-            Drag on the page to mark where the new logo goes. The same area is applied to every page of every PDF.
+            Drag on this page to mark where the new logo goes. Only pages you mark are replaced.
           </div>
         )}
       </div>

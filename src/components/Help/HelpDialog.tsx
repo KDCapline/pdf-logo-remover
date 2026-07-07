@@ -13,8 +13,8 @@ import { Sparkles } from "lucide-react";
 const HOW_TO_STEPS: readonly string[] = [
   "Drop one or more PDFs into the upload area.",
   "Upload your new logo (PNG/JPG/SVG) — the image that will replace the old one.",
-  "On the preview, drag to draw a rectangle over the logo area you want to replace.",
-  "Click Replace. The same area is replaced on every page of every uploaded PDF.",
+  "On the preview, drag on each page where you want to replace the logo.",
+  "Click Replace. Only the pages you marked are updated.",
   "Download a ZIP of the processed PDFs and export the report.",
 ];
 
