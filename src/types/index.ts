@@ -8,6 +8,17 @@ export interface Rectangle {
   height: number;
 }
 
+/**
+ * A user-drawn replacement mark: the drawn rectangle plus a template image
+ * (PNG data URL) captured from the page at draw time. The template lets
+ * auto-locate search the page for the logo at its actual position when the
+ * same page index has the logo at different coordinates across PDFs.
+ */
+export interface PageReplacementMark {
+  rect: Rectangle;
+  templateDataUrl: string;
+}
+
 export interface LogoImage {
   id: string;
   file: File;
@@ -46,6 +57,17 @@ export interface PDFFileItem {
 export interface ProcessingSettings {
   /** Maximum number of PDFs processed in parallel. */
   concurrency: number;
+  /**
+   * When true, each PDF is scanned so only marked pages that actually contain
+   * logo-like content at the drawn rectangle are replaced.
+   */
+  smartMatch: boolean;
+  /**
+   * When true, pages where smart match fails are searched for the drawn
+   * template (hint neighbourhood first, then full page) so a rough mark still
+   * lands on the logo when alignment varies across PDFs.
+   */
+  autoLocate: boolean;
 }
 
 export interface ReportItem {
@@ -68,6 +90,8 @@ export type Theme = "light" | "dark" | "system";
 
 export const DEFAULT_SETTINGS: ProcessingSettings = {
   concurrency: 3,
+  smartMatch: true,
+  autoLocate: false,
 };
 
 /** Maximum number of PDFs allowed in the queue at one time. */

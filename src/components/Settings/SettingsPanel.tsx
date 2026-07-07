@@ -2,6 +2,7 @@
 // "Reset to defaults" restores DEFAULT_SETTINGS.
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/useAppStore";
 import { DEFAULT_SETTINGS } from "@/types";
@@ -12,6 +13,8 @@ const CONCURRENCY_OPTIONS = [1, 2, 3, 4, 5] as const;
 export function SettingsPanel() {
   const settings = useAppStore((state) => state.settings);
   const setConcurrency = useAppStore((state) => state.setConcurrency);
+  const setSmartMatch = useAppStore((state) => state.setSmartMatch);
+  const setAutoLocate = useAppStore((state) => state.setAutoLocate);
   const resetSettings = useAppStore((state) => state.resetSettings);
 
   return (
@@ -57,6 +60,34 @@ export function SettingsPanel() {
           <p className="text-xs text-muted-foreground">
             Number of PDFs processed in parallel.
           </p>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="smart-match">Smart page matching</Label>
+            <p className="text-xs text-muted-foreground">
+              Only replace marked pages that actually contain a logo in each PDF.
+            </p>
+          </div>
+          <Switch
+            id="smart-match"
+            checked={settings.smartMatch}
+            onCheckedChange={setSmartMatch}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="auto-locate">Auto-locate logo</Label>
+            <p className="text-xs text-muted-foreground">
+              When a fixed mark does not match, search near it (then the full
+              page) to find the logo. Unmarked PDFs reuse your first mark at the
+              same position before searching.
+            </p>
+          </div>
+          <Switch
+            id="auto-locate"
+            checked={settings.autoLocate}
+            onCheckedChange={setAutoLocate}
+          />
         </div>
       </CardContent>
     </Card>

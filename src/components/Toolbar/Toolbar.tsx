@@ -23,8 +23,10 @@ export interface ToolbarProps {
 export function Toolbar({ bulk }: ToolbarProps) {
   const files = useAppStore((state) => state.files);
   const newLogo = useAppStore((state) => state.newLogo);
-  const replacementRectsByPage = useAppStore((state) => state.replacementRectsByPage);
-  const hasMarkedPages = Object.keys(replacementRectsByPage).length > 0;
+  const replacementMarksByFile = useAppStore((state) => state.replacementMarksByFile);
+  const hasMarkedPages = Object.values(replacementMarksByFile).some(
+    (pages) => Object.keys(pages).length > 0,
+  );
   const report = useAppStore((state) => state.report);
   const isProcessing = useAppStore((state) => state.isProcessing);
   const [zipping, setZipping] = useState<boolean>(false);

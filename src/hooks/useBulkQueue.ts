@@ -2,7 +2,8 @@
 // Wraps usePDFProcessor.processFile with a createConcurrentQueue and
 // tracks progress / cancellation.
 import { useCallback, useRef, useState } from "react";
-import type { PDFFileItem, ProcessingSettings, ReportItem } from "@/types";
+import type { PageReplacementMark, PDFFileItem, ProcessingSettings, ReportItem } from "@/types";
+import type { TemplateVectorCache } from "@/services/logoLocator";
 import { createConcurrentQueue, type QueueHandle } from "@/utils/queue";
 import { useAppStore } from "@/store/useAppStore";
 import { usePDFProcessor } from "@/hooks/usePDFProcessor";
@@ -69,9 +70,14 @@ export function useBulkQueue(
     const store = useAppStore.getState();
     const settings: ProcessingSettings = store.settings;
     const newLogo = store.newLogo;
-    const replacementRectsByPage = store.replacementRectsByPage;
+    const replacementMarksByFile = store.replacementMarksByFile;
 
-    if (!newLogo || Object.keys(replacementRectsByPage).length === 0) {
+    if (
+      !newLogo ||
+      Object.values(replacementMarksByFile).every(
+        (pages) => Object.keys(pages).length === 0,
+      )
+    ) {
       return;
     }
 
@@ -87,6 +93,19 @@ export function useBulkQueue(
     if (list.length === 0) {
       return;
     }
+
+    // A single marked PDF can drive the whole batch: unmarked files inherit
+    // the same page indices and rectangles (fast smart-match path).
+    let referenceMarksByPage: Record<number, PageReplacementMark> | undefined;
+    for (const item of list) {
+      const marks = replacementMarksByFile[item.id];
+      if (marks && Object.keys(marks).length > 0) {
+        referenceMarksByPage = marks;
+        break;
+      }
+    }
+
+    const templateVectorCache: TemplateVectorCache = new Map();
 
     // Mark each file queued for processing as "processing" up-front so the UI
     // reflects the imminent work.
@@ -167,11 +186,17 @@ export function useBulkQueue(
           return;
         }
         try {
+          const ownMarks = replacementMarksByFile[item.id] ?? {};
+          const marksToUse =
+            Object.keys(ownMarks).length > 0
+              ? ownMarks
+              : (referenceMarksByPage ?? {});
           const report = await processFile(
             item,
             newLogo,
-            replacementRectsByPage,
+            marksToUse,
             signal,
+            { templateVectorCache },
           );
           onItemFinished(item, report);
         } catch (err: unknown) {

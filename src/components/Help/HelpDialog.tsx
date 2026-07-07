@@ -8,14 +8,40 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAppStore } from "@/store/useAppStore";
+import { MAX_PDFS } from "@/types";
 import { Sparkles } from "lucide-react";
 
 const HOW_TO_STEPS: readonly string[] = [
-  "Drop one or more PDFs into the upload area.",
-  "Upload your new logo (PNG/JPG/SVG) — the image that will replace the old one.",
-  "On the preview, drag on each page where you want to replace the logo.",
-  "Click Replace. Only the pages you marked are updated.",
-  "Download a ZIP of the processed PDFs and export the report.",
+  "Drop one or more PDFs into the upload area (up to " + MAX_PDFS + " at a time).",
+  "Upload your new logo (PNG, JPG, or SVG) — the image that will replace the old one.",
+  "Select a PDF in the preview, go to each page that needs the logo replaced, and drag a rectangle over the existing logo. You can move or resize the mark afterward.",
+  "For bulk batches: if every PDF has the logo in the same place, mark one PDF only — the rest inherit that position. If alignments differ, switch files in the preview and mark each PDF separately.",
+  "Click Replace logos. Processed files can be downloaded as a ZIP; use Export Report for a JSON summary.",
+];
+
+const SETTINGS_ITEMS: readonly { title: string; description: string }[] = [
+  {
+    title: "Concurrency",
+    description:
+      "How many PDFs are processed in parallel. Lower this if your browser feels sluggish on large batches.",
+  },
+  {
+    title: "Smart page matching",
+    description:
+      "Checks each marked page before replacing. Pages where the logo is not found at the marked position are skipped, so blank or unrelated pages are not overwritten.",
+  },
+  {
+    title: "Auto-locate logo",
+    description:
+      "Fallback when a fixed mark does not match. The app first tries your marked position, then searches nearby, and only scans the full page if needed. Turn this on when logo placement varies across PDFs or your mark is only approximate.",
+  },
+];
+
+const MARKING_TIPS: readonly string[] = [
+  "Marks are saved per PDF — drawing on one file does not move the rectangle on another.",
+  "Mark every page you want replaced. Unmarked pages are left unchanged.",
+  "When you mark one PDF in a same-layout batch, unmarked PDFs reuse those page numbers and coordinates automatically.",
+  "For mixed batches, mark the outlier PDFs individually; same-layout files can still share the first mark.",
 ];
 
 const SUPPORTED_FORMATS: readonly { label: string; value: string }[] = [
@@ -68,6 +94,34 @@ export function HelpDialog() {
               </li>
             ))}
           </ol>
+        </section>
+
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Marking &amp; bulk tips
+          </h3>
+          <ul className="space-y-2 text-sm">
+            {MARKING_TIPS.map((tip) => (
+              <li key={tip} className="flex gap-2 text-foreground/90">
+                <span className="mt-2 size-1 shrink-0 rounded-full bg-primary/60" />
+                <span>{tip}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Settings
+          </h3>
+          <ul className="divide-y divide-border/60 rounded-xl border border-border/60 bg-muted/30 text-sm">
+            {SETTINGS_ITEMS.map((item) => (
+              <li key={item.title} className="space-y-1 px-4 py-3">
+                <p className="font-medium text-foreground">{item.title}</p>
+                <p className="text-xs text-muted-foreground">{item.description}</p>
+              </li>
+            ))}
+          </ul>
         </section>
 
         <section className="space-y-3">

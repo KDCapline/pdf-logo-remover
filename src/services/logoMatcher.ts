@@ -32,7 +32,8 @@ export interface LogoMatchOptions {
 /** Default similarity threshold — tuned to accept the same logo while
  *  rejecting text/graphics/blank regions at matching coordinates. */
 export const DEFAULT_MATCH_THRESHOLD = 0.6;
-const DEFAULT_SAMPLE_SIZE = 32;
+/** Edge length of the square thumbnail a region/template is reduced to. */
+export const DEFAULT_SAMPLE_SIZE = 32;
 /** Regions flatter than this grayscale std-dev are treated as blank. */
 const MIN_REGION_STD = 2.0;
 
@@ -46,6 +47,129 @@ interface RegionDescriptor {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Downsample a region of an already-rendered canvas to `sampleSize`×`sampleSize`
+ * and reduce it to a zero-mean, unit-L2 grayscale vector. Returns null when the
+ * region is blank or too small to describe. The source rect is clamped to the
+ * canvas bounds; out-of-bounds area is treated as white paper.
+ */
+export function vectorFromCanvasRegion(
+  srcCanvas: HTMLCanvasElement,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  sampleSize: number,
+): Float32Array | null {
+  const cw = srcCanvas.width;
+  const ch = srcCanvas.height;
+  let x = sx;
+  let y = sy;
+  let w = sw;
+  let h = sh;
+  if (x < 0) {
+    w += x;
+    x = 0;
+  }
+  if (y < 0) {
+    h += y;
+    y = 0;
+  }
+  if (x + w > cw) w = cw - x;
+  if (y + h > ch) h = ch - y;
+  if (w < 2 || h < 2) return null;
+
+  const small = document.createElement("canvas");
+  small.width = sampleSize;
+  small.height = sampleSize;
+  const sctx = small.getContext("2d", { willReadFrequently: true });
+  if (!sctx) return null;
+  sctx.fillStyle = "#ffffff";
+  sctx.fillRect(0, 0, sampleSize, sampleSize);
+  sctx.drawImage(srcCanvas, x, y, w, h, 0, 0, sampleSize, sampleSize);
+
+  const { data } = sctx.getImageData(0, 0, sampleSize, sampleSize);
+  const n = sampleSize * sampleSize;
+  const gray = new Float32Array(n);
+  let mean = 0;
+  for (let i = 0; i < n; i++) {
+    const r = data[i * 4];
+    const g = data[i * 4 + 1];
+    const b = data[i * 4 + 2];
+    const a = data[i * 4 + 3];
+    const v = a === 0 ? 255 : 0.299 * r + 0.587 * g + 0.114 * b;
+    gray[i] = v;
+    mean += v;
+  }
+  mean /= n;
+
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) {
+    gray[i] -= mean;
+    sumSq += gray[i] * gray[i];
+  }
+  const std = Math.sqrt(sumSq / n);
+  if (std < MIN_REGION_STD) return null; // essentially blank
+
+  const norm = Math.sqrt(sumSq);
+  for (let i = 0; i < n; i++) gray[i] /= norm;
+  return gray;
+}
+
+/**
+ * Load an image from a data URL, downsample to `sampleSize`×`sampleSize`, and
+ * reduce to a zero-mean, unit-L2 grayscale vector. Used to turn a captured
+ * template (PNG data URL) into a descriptor for cross-page search.
+ */
+export async function vectorFromDataUrl(
+  dataUrl: string,
+  sampleSize: number,
+): Promise<Float32Array | null> {
+  if (!dataUrl) return null;
+  const img = await loadImage(dataUrl);
+  const small = document.createElement("canvas");
+  small.width = sampleSize;
+  small.height = sampleSize;
+  const sctx = small.getContext("2d", { willReadFrequently: true });
+  if (!sctx) return null;
+  sctx.fillStyle = "#ffffff";
+  sctx.fillRect(0, 0, sampleSize, sampleSize);
+  sctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+  const { data } = sctx.getImageData(0, 0, sampleSize, sampleSize);
+  const n = sampleSize * sampleSize;
+  const gray = new Float32Array(n);
+  let mean = 0;
+  for (let i = 0; i < n; i++) {
+    const r = data[i * 4];
+    const g = data[i * 4 + 1];
+    const b = data[i * 4 + 2];
+    const a = data[i * 4 + 3];
+    const v = a === 0 ? 255 : 0.299 * r + 0.587 * g + 0.114 * b;
+    gray[i] = v;
+    mean += v;
+  }
+  mean /= n;
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) {
+    gray[i] -= mean;
+    sumSq += gray[i] * gray[i];
+  }
+  const std = Math.sqrt(sumSq / n);
+  if (std < MIN_REGION_STD) return null;
+  const norm = Math.sqrt(sumSq);
+  for (let i = 0; i < n; i++) gray[i] /= norm;
+  return gray;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to load template image"));
+    img.src = src;
+  });
 }
 
 /**
@@ -69,70 +193,20 @@ async function describeRegion(
 
   const { canvas } = await renderPageToCanvas(doc, pageIndex, scale);
   try {
-    const cw = canvas.width;
-    const ch = canvas.height;
-
-    let sx = Math.round(rect.x * scale);
-    let sy = Math.round(rect.y * scale);
-    let sw = Math.round(rect.width * scale);
-    let sh = Math.round(rect.height * scale);
-
-    // Clamp the source rectangle to the page bounds.
-    if (sx < 0) {
-      sw += sx;
-      sx = 0;
-    }
-    if (sy < 0) {
-      sh += sy;
-      sy = 0;
-    }
-    if (sx + sw > cw) sw = cw - sx;
-    if (sy + sh > ch) sh = ch - sy;
-    if (sw < 2 || sh < 2) return { vector: null };
-
-    const small = document.createElement("canvas");
-    small.width = sampleSize;
-    small.height = sampleSize;
-    const sctx = small.getContext("2d", { willReadFrequently: true });
-    if (!sctx) return { vector: null };
-    // White background so out-of-bounds / transparent areas read as paper.
-    sctx.fillStyle = "#ffffff";
-    sctx.fillRect(0, 0, sampleSize, sampleSize);
-    sctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sampleSize, sampleSize);
-
-    const { data } = sctx.getImageData(0, 0, sampleSize, sampleSize);
-    const n = sampleSize * sampleSize;
-    const gray = new Float32Array(n);
-    let mean = 0;
-    for (let i = 0; i < n; i++) {
-      const r = data[i * 4];
-      const g = data[i * 4 + 1];
-      const b = data[i * 4 + 2];
-      const a = data[i * 4 + 3];
-      const v = a === 0 ? 255 : 0.299 * r + 0.587 * g + 0.114 * b;
-      gray[i] = v;
-      mean += v;
-    }
-    mean /= n;
-
-    let sumSq = 0;
-    for (let i = 0; i < n; i++) {
-      gray[i] -= mean;
-      sumSq += gray[i] * gray[i];
-    }
-    const std = Math.sqrt(sumSq / n);
-    if (std < MIN_REGION_STD) return { vector: null }; // essentially blank
-
-    const norm = Math.sqrt(sumSq);
-    for (let i = 0; i < n; i++) gray[i] /= norm;
-    return { vector: gray };
+    if (signal?.canceled) throw new Error("canceled");
+    const sx = Math.round(rect.x * scale);
+    const sy = Math.round(rect.y * scale);
+    const sw = Math.round(rect.width * scale);
+    const sh = Math.round(rect.height * scale);
+    const vector = vectorFromCanvasRegion(canvas, sx, sy, sw, sh, sampleSize);
+    return { vector };
   } finally {
     releaseCanvas(canvas);
   }
 }
 
 /** Normalized cross-correlation of two unit-norm, zero-mean vectors → [-1, 1]. */
-function correlation(a: Float32Array, b: Float32Array): number {
+export function correlation(a: Float32Array, b: Float32Array): number {
   let sum = 0;
   for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
   return sum;
@@ -202,6 +276,78 @@ export async function findLogoPages(
       }
     }
     return matched;
+  } finally {
+    await doc.cleanup();
+  }
+}
+
+/**
+ * Filter marked pages to those that actually contain logo-like content in this
+ * PDF. Each page may use its own rectangle from `pageRects`. The lowest
+ * marked page index is the reference; other pages are included only when their
+ * region correlates with the reference above `threshold`.
+ *
+ * Returns an empty record when the reference region is blank (no logo at the
+ * marked position in this file).
+ */
+export async function filterPageRectsWithLogo(
+  file: File,
+  pageRects: Record<number, Rectangle>,
+  signal?: MatchSignal,
+  options?: LogoMatchOptions,
+): Promise<Record<number, Rectangle>> {
+  const threshold = options?.threshold ?? DEFAULT_MATCH_THRESHOLD;
+  const sampleSize = options?.sampleSize ?? DEFAULT_SAMPLE_SIZE;
+
+  const pages = Object.keys(pageRects)
+    .map((k) => Number.parseInt(k, 10))
+    .filter((i) => Number.isFinite(i))
+    .sort((a, b) => a - b);
+
+  if (pages.length === 0) return {};
+
+  const doc = await loadPdf(file);
+  try {
+    const total = doc.numPages;
+    const referencePage = pages[0];
+    const referenceRect = pageRects[referencePage];
+    if (!referenceRect || referencePage < 0 || referencePage >= total) return {};
+
+    const reference = await describeRegion(
+      doc,
+      referencePage,
+      referenceRect,
+      sampleSize,
+      signal,
+    );
+    if (!reference?.vector) return {};
+
+    const refVector = reference.vector;
+    const filtered: Record<number, Rectangle> = {
+      [referencePage]: referenceRect,
+    };
+
+    for (const pageIndex of pages) {
+      if (signal?.canceled) throw new Error("canceled");
+      if (pageIndex === referencePage) continue;
+      if (pageIndex < 0 || pageIndex >= total) continue;
+
+      const rect = pageRects[pageIndex];
+      if (!rect) continue;
+
+      const desc = await describeRegion(
+        doc,
+        pageIndex,
+        rect,
+        sampleSize,
+        signal,
+      );
+      if (desc?.vector && correlation(refVector, desc.vector) >= threshold) {
+        filtered[pageIndex] = rect;
+      }
+    }
+
+    return filtered;
   } finally {
     await doc.cleanup();
   }
