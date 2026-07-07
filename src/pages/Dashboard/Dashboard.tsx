@@ -30,8 +30,8 @@ export function Dashboard() {
   const selectedFileId = useAppStore((state) => state.selectedFileId);
   const setSelectedFileId = useAppStore((state) => state.setSelectedFileId);
   const setHelpOpen = useAppStore((state) => state.setHelpOpen);
-  const replacementRectsByPage = useAppStore((state) => state.replacementRectsByPage);
-  const clearReplacementRects = useAppStore((state) => state.clearReplacementRects);
+  const replacementMarksByFile = useAppStore((state) => state.replacementMarksByFile);
+  const clearReplacementMarks = useAppStore((state) => state.clearReplacementMarks);
   const previewPageById = useAppStore((state) => state.previewPageById);
 
   useEffect(() => {
@@ -48,25 +48,32 @@ export function Dashboard() {
     [files, selectedFileId],
   );
 
+  const activeFileId = selectedItem?.id ?? null;
+
   const markedPageEntries = useMemo(
-    () =>
-      Object.entries(replacementRectsByPage)
-        .map(([page, rect]) => ({
+    () => {
+      const fileMarks =
+        activeFileId != null
+          ? (replacementMarksByFile[activeFileId] ?? {})
+          : {};
+      return Object.entries(fileMarks)
+        .map(([page, mark]) => ({
           pageIndex: Number.parseInt(page, 10),
-          rect,
+          rect: mark.rect,
         }))
         .filter((entry) => Number.isFinite(entry.pageIndex))
-        .sort((a, b) => a.pageIndex - b.pageIndex),
-    [replacementRectsByPage],
+        .sort((a, b) => a.pageIndex - b.pageIndex);
+    },
+    [replacementMarksByFile, activeFileId],
   );
 
   const currentPreviewPage =
-    selectedItem != null
-      ? (previewPageById[selectedItem.id] ?? 0)
+    activeFileId != null
+      ? (previewPageById[activeFileId] ?? 0)
       : null;
   const currentPageRect =
-    currentPreviewPage != null
-      ? replacementRectsByPage[currentPreviewPage]
+    currentPreviewPage != null && activeFileId != null
+      ? (replacementMarksByFile[activeFileId] ?? {})[currentPreviewPage]?.rect
       : null;
 
   return (
@@ -124,13 +131,13 @@ export function Dashboard() {
                         Replacement area
                       </h3>
                     </div>
-                    {markedPageEntries.length > 0 && (
+                    {markedPageEntries.length > 0 && selectedItem != null && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={clearReplacementRects}
+                        onClick={() => clearReplacementMarks(selectedItem.id)}
                       >
-                        <Eraser className="mr-1 h-3.5 w-3.5" /> Clear all
+                        <Eraser className="mr-1 h-3.5 w-3.5" /> Clear marks
                       </Button>
                     )}
                   </div>
@@ -157,7 +164,7 @@ export function Dashboard() {
                         ) : null}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Only pages you mark in the preview are replaced. Navigate to each page and drag to mark it.
+                        Marks are per-PDF — switch files in the preview to mark each one separately.
                       </p>
                     </div>
                   ) : (

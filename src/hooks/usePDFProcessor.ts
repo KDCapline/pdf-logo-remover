@@ -4,12 +4,16 @@
 import { useCallback, useRef } from "react";
 import type {
   LogoImage,
+  PageReplacementMark,
   PDFFileItem,
-  Rectangle,
   ReportItem,
 } from "@/types";
 import { loadPdf, renderPageToCanvas, getPageCount } from "@/services/pdfRenderer";
 import { replaceLogoInPdf } from "@/services/pdfEditor";
+import {
+  resolveReplacementRects,
+  type TemplateVectorCache,
+} from "@/services/logoLocator";
 import { releaseCanvas } from "@/utils/canvas";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -20,6 +24,11 @@ export interface ProcessSignal {
 export interface PreviewHandle {
   canvas: HTMLCanvasElement;
   cleanup: () => void;
+}
+
+export interface ProcessFileOptions {
+  /** Shared across a bulk run so template vectors are computed once. */
+  templateVectorCache?: TemplateVectorCache;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -33,8 +42,9 @@ export function usePDFProcessor(): {
   processFile: (
     item: PDFFileItem,
     newLogo: LogoImage,
-    pageRects: Record<number, Rectangle>,
+    marksByPage: Record<number, PageReplacementMark>,
     signal: ProcessSignal,
+    options?: ProcessFileOptions,
   ) => Promise<ReportItem>;
   renderPageForPreview: (
     file: File,
@@ -50,8 +60,9 @@ export function usePDFProcessor(): {
     async (
       item: PDFFileItem,
       newLogo: LogoImage,
-      pageRects: Record<number, Rectangle>,
+      marksByPage: Record<number, PageReplacementMark>,
       signal: ProcessSignal,
+      options?: ProcessFileOptions,
     ): Promise<ReportItem> => {
       const updateFile = (patch: Partial<PDFFileItem>): void => {
         updateFileRef.current(item.id, patch);
@@ -62,7 +73,7 @@ export function usePDFProcessor(): {
           throw new Error("canceled");
         }
 
-        const markedPages = Object.keys(pageRects)
+        const markedPages = Object.keys(marksByPage)
           .map((k) => Number.parseInt(k, 10))
           .filter((i) => Number.isFinite(i))
           .sort((a, b) => a - b);
@@ -79,19 +90,20 @@ export function usePDFProcessor(): {
         const pageCount = await getPageCount(doc);
         await doc.cleanup();
 
-        // Only replace pages that exist in this PDF.
-        const applicableRects: Record<number, Rectangle> = {};
-        for (const pageIndex of markedPages) {
-          if (pageIndex >= 0 && pageIndex < pageCount) {
-            applicableRects[pageIndex] = pageRects[pageIndex];
-          }
-        }
-
         if (signal.canceled) {
           throw new Error("canceled");
         }
 
-        if (Object.keys(applicableRects).length === 0) {
+        const settings = useAppStore.getState().settings;
+
+        const applicableMarks: Record<number, PageReplacementMark> = {};
+        for (const pageIndex of markedPages) {
+          if (pageIndex >= 0 && pageIndex < pageCount) {
+            applicableMarks[pageIndex] = marksByPage[pageIndex];
+          }
+        }
+
+        if (Object.keys(applicableMarks).length === 0) {
           return {
             name: item.name,
             status: "skipped",
@@ -99,13 +111,39 @@ export function usePDFProcessor(): {
           };
         }
 
-        const firstPage = Number.parseInt(Object.keys(applicableRects)[0] ?? "0", 10);
+        const rectsToReplace = await resolveReplacementRects(
+          item.file,
+          applicableMarks,
+          {
+            autoLocate: settings.autoLocate,
+            smartMatch: settings.smartMatch,
+            signal,
+            vectorCache: options?.templateVectorCache,
+          },
+        );
+
+        if (signal.canceled) {
+          throw new Error("canceled");
+        }
+
+        if (Object.keys(rectsToReplace).length === 0) {
+          return {
+            name: item.name,
+            status: "skipped",
+            reason: "No logo found at the marked position in this PDF",
+          };
+        }
+
+        const firstPage = Number.parseInt(
+          Object.keys(rectsToReplace)[0] ?? "0",
+          10,
+        );
         updateFile({ currentPage: firstPage });
 
         const { blob, matched } = await replaceLogoInPdf(
           item.file,
           newLogo,
-          applicableRects,
+          rectsToReplace,
           signal,
         );
 

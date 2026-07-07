@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import type {
   FileStatus,
   LogoImage,
+  PageReplacementMark,
   PDFFileItem,
   ProcessingSettings,
   Rectangle,
@@ -31,18 +32,28 @@ interface AppState {
   setSelectedPages: (id: string, pages: number[]) => void;
   togglePage: (id: string, pageIndex: number) => void;
 
-  // New logo + per-page replacement rects (only marked pages are replaced).
+  // New logo + per-file replacement marks (only marked pages are replaced).
+  // Marks are scoped per file id so a rect drawn on one PDF is not applied to
+  // another PDF whose logo sits at a different position. Each mark carries a
+  // template image so auto-locate can search the page for the logo at its
+  // actual position when alignment varies.
   newLogo: LogoImage | null;
   setNewLogo: (logo: LogoImage | null) => void;
   clearNewLogo: () => void;
-  replacementRectsByPage: Record<number, Rectangle>;
-  setReplacementRectForPage: (pageIndex: number, rect: Rectangle) => void;
-  clearReplacementRectForPage: (pageIndex: number) => void;
-  clearReplacementRects: () => void;
+  replacementMarksByFile: Record<string, Record<number, PageReplacementMark>>;
+  setReplacementMarkForPage: (
+    fileId: string,
+    pageIndex: number,
+    mark: PageReplacementMark,
+  ) => void;
+  clearReplacementMarkForPage: (fileId: string, pageIndex: number) => void;
+  clearReplacementMarks: (fileId?: string) => void;
 
   // Settings
   settings: ProcessingSettings;
   setConcurrency: (concurrency: number) => void;
+  setSmartMatch: (smartMatch: boolean) => void;
+  setAutoLocate: (autoLocate: boolean) => void;
   resetSettings: () => void;
 
   // Theme
@@ -90,8 +101,15 @@ export const useAppStore = create<AppState>()(
           return { files: [...state.files, ...accepted] };
         }),
       removeFile: (id) =>
-        set((state) => ({ files: state.files.filter((f) => f.id !== id) })),
-      clearFiles: () => set({ files: [] }),
+        set((state) => {
+          const next = { ...state.replacementMarksByFile };
+          delete next[id];
+          return {
+            files: state.files.filter((f) => f.id !== id),
+            replacementMarksByFile: next,
+          };
+        }),
+      clearFiles: () => set({ files: [], replacementMarksByFile: {} }),
 
       rejectedFiles: [],
       addRejected: (incoming) =>
@@ -132,25 +150,50 @@ export const useAppStore = create<AppState>()(
       newLogo: null,
       setNewLogo: (logo) => set({ newLogo: logo }),
       clearNewLogo: () => set({ newLogo: null }),
-      replacementRectsByPage: {},
-      setReplacementRectForPage: (pageIndex, rect) =>
-        set((state) => ({
-          replacementRectsByPage: {
-            ...state.replacementRectsByPage,
-            [pageIndex]: rect,
-          },
-        })),
-      clearReplacementRectForPage: (pageIndex) =>
+      replacementMarksByFile: {},
+      setReplacementMarkForPage: (fileId, pageIndex, mark) =>
         set((state) => {
-          const next = { ...state.replacementRectsByPage };
-          delete next[pageIndex];
-          return { replacementRectsByPage: next };
+          const fileMarks = {
+            ...(state.replacementMarksByFile[fileId] ?? {}),
+          };
+          fileMarks[pageIndex] = mark;
+          return {
+            replacementMarksByFile: {
+              ...state.replacementMarksByFile,
+              [fileId]: fileMarks,
+            },
+          };
         }),
-      clearReplacementRects: () => set({ replacementRectsByPage: {} }),
+      clearReplacementMarkForPage: (fileId, pageIndex) =>
+        set((state) => {
+          const fileMarks = state.replacementMarksByFile[fileId];
+          if (!fileMarks) return state;
+          const nextFileMarks = { ...fileMarks };
+          delete nextFileMarks[pageIndex];
+          const next = { ...state.replacementMarksByFile };
+          if (Object.keys(nextFileMarks).length === 0) {
+            delete next[fileId];
+          } else {
+            next[fileId] = nextFileMarks;
+          }
+          return { replacementMarksByFile: next };
+        }),
+      clearReplacementMarks: (fileId) =>
+        set((state) => {
+          if (fileId == null) return { replacementMarksByFile: {} };
+          if (!state.replacementMarksByFile[fileId]) return state;
+          const next = { ...state.replacementMarksByFile };
+          delete next[fileId];
+          return { replacementMarksByFile: next };
+        }),
 
       settings: { ...DEFAULT_SETTINGS },
       setConcurrency: (concurrency) =>
         set((state) => ({ settings: { ...state.settings, concurrency } })),
+      setSmartMatch: (smartMatch) =>
+        set((state) => ({ settings: { ...state.settings, smartMatch } })),
+      setAutoLocate: (autoLocate) =>
+        set((state) => ({ settings: { ...state.settings, autoLocate } })),
       resetSettings: () => set({ settings: { ...DEFAULT_SETTINGS } }),
 
       theme: "system",
@@ -183,6 +226,14 @@ export const useAppStore = create<AppState>()(
     {
       name: "pdf-logo-replacer",
       partialize: (state) => ({ settings: state.settings, theme: state.theme }),
+      merge: (persisted, current) => {
+        const stored = persisted as Partial<AppState> | undefined;
+        return {
+          ...current,
+          ...stored,
+          settings: { ...DEFAULT_SETTINGS, ...stored?.settings },
+        };
+      },
     },
   ),
 );
@@ -190,6 +241,7 @@ export const useAppStore = create<AppState>()(
 // Re-export commonly used types for convenience.
 export type {
   PDFFileItem,
+  PageReplacementMark,
   ProcessingSettings,
   Rectangle,
   RejectedFile,

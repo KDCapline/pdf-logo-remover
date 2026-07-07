@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppStore } from "@/store/useAppStore";
 import { usePDFProcessor, type PreviewHandle } from "@/hooks/usePDFProcessor";
+import { captureMarkTemplate } from "@/services/logoLocator";
 import type { PDFFileItem, Rectangle } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -77,9 +78,9 @@ function pointInHandle(px: number, py: number, r: Rectangle): boolean {
 }
 
 export function PdfPreview({ item }: PdfPreviewProps) {
-  const replacementRectsByPage = useAppStore((state) => state.replacementRectsByPage);
-  const setReplacementRectForPage = useAppStore(
-    (state) => state.setReplacementRectForPage,
+  const replacementMarksByFile = useAppStore((state) => state.replacementMarksByFile);
+  const setReplacementMarkForPage = useAppStore(
+    (state) => state.setReplacementMarkForPage,
   );
   const { renderPageForPreview } = usePDFProcessor();
 
@@ -225,7 +226,8 @@ export function PdfPreview({ item }: PdfPreviewProps) {
   }, []);
 
   // draftRect (in-progress drag) takes priority; otherwise show this page's rect only.
-  const pageRect = replacementRectsByPage[pageIndex] ?? null;
+  const fileMarks = replacementMarksByFile[item.id] ?? {};
+  const pageRect = fileMarks[pageIndex]?.rect ?? null;
   const effectiveRect: Rectangle | null = draftRect ?? pageRect ?? null;
 
   // Convert a rect from PDF units (scale=1) to canvas pixels at current zoom.
@@ -428,11 +430,27 @@ export function PdfPreview({ item }: PdfPreviewProps) {
     dragRef.current = null;
     setDraftRect((current) => {
       if (current && current.width > 1 && current.height > 1) {
-        setReplacementRectForPage(pageIndex, current);
+        // Capture a template from the drawn region so auto-locate can later
+        // search the page for the logo at its actual position. Capture is
+        // best-effort: if it fails we still store the rect-only mark, and
+        // resolveReplacementRects falls back to the drawn rectangle.
+        captureMarkTemplate(item.file, pageIndex, current)
+          .then((templateDataUrl) => {
+            setReplacementMarkForPage(item.id, pageIndex, {
+              rect: current,
+              templateDataUrl,
+            });
+          })
+          .catch(() => {
+            setReplacementMarkForPage(item.id, pageIndex, {
+              rect: current,
+              templateDataUrl: "",
+            });
+          });
       }
       return null;
     });
-  }, [pageIndex, setReplacementRectForPage]);
+  }, [item.file, item.id, pageIndex, setReplacementMarkForPage]);
 
   const onPointerUp = useCallback(
     (e: ReactPointerEvent<HTMLCanvasElement>): void => {
