@@ -1,91 +1,50 @@
-// PdfDropzone: drop one or more PDFs, build PDFFileItem records, add to
-// store, then asynchronously load each via pdfjs to fill pageCount and a
-// first-page thumbnail.
+// PdfDropzone: drop one or more PDFs. Accepts up to the MAX_PDFS cap and
+// records any overflow in the rejected list (via the shared ingest hook).
 import { useCallback } from "react";
 import { FileText } from "lucide-react";
 import { Dropzone } from "@/components/UploadArea/Dropzone";
 import { useAppStore } from "@/store/useAppStore";
-import { loadPdf, getPageCount, renderPageThumbnail } from "@/services/pdfRenderer";
+import { usePdfIngest } from "@/hooks/usePdfIngest";
 import { uid } from "@/utils/pdf";
-import { MAX_PDFS, type PDFFileItem } from "@/types";
+import { MAX_PDFS } from "@/types";
 import { toast } from "sonner";
 
 const PDF_ACCEPT = {
   "application/pdf": [".pdf"],
 } as const;
 
-function buildItem(file: File): PDFFileItem {
-  return {
-    id: uid(),
-    file,
-    name: file.name,
-    size: file.size,
-    pageCount: 0,
-    thumbnailUrl: null,
-    status: "pending",
-    progress: 0,
-    currentPage: 0,
-    selectedPages: [],
-  };
-}
-
 export function PdfDropzone() {
-  const addFiles = useAppStore((state) => state.addFiles);
-  const updateFile = useAppStore((state) => state.updateFile);
-  const currentCount = useAppStore((state) => state.files.length);
-
-  const loadMetadata = useCallback(
-    async (item: PDFFileItem): Promise<void> => {
-      try {
-        const doc = await loadPdf(item.file);
-        try {
-          const pageCount = await getPageCount(doc);
-          let thumbnailUrl: string | null = null;
-          try {
-            thumbnailUrl = await renderPageThumbnail(doc, 0, 220);
-          } catch {
-            thumbnailUrl = null;
-          }
-          updateFile(item.id, { pageCount, thumbnailUrl });
-        } finally {
-          await doc.cleanup();
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        updateFile(item.id, {
-          status: "error",
-          error: message,
-        });
-        toast.error(`Failed to read "${item.name}": ${message}`);
-      }
-    },
-    [updateFile],
-  );
+  const addRejected = useAppStore((state) => state.addRejected);
+  const { roomLeft, ingest } = usePdfIngest();
 
   const onFiles = useCallback(
     (files: File[]): void => {
-      const remaining = MAX_PDFS - currentCount;
+      // Read the live count so rapid, successive drops can't slip past the cap.
+      const remaining = roomLeft();
 
-      if (remaining <= 0) {
-        toast.warning(
-          `You've reached the ${MAX_PDFS}-PDF limit. Remove some files before adding more.`,
+      const accepted = files.slice(0, remaining);
+      const rejected = files.slice(remaining);
+
+      if (rejected.length > 0) {
+        addRejected(
+          rejected.map((file) => ({
+            id: uid(),
+            file,
+            name: file.name,
+            size: file.size,
+            reason: `Exceeds the ${MAX_PDFS}-PDF limit`,
+          })),
         );
-        return;
+        toast.warning(
+          accepted.length > 0
+            ? `You can keep up to ${MAX_PDFS} PDFs at a time. Added ${accepted.length}, rejected ${rejected.length}.`
+            : `You've reached the ${MAX_PDFS}-PDF limit. ${rejected.length} file${rejected.length === 1 ? "" : "s"} rejected — remove some before adding more.`,
+        );
       }
 
-      let incoming = files;
-      if (files.length > remaining) {
-        toast.warning(
-          `You can upload up to ${MAX_PDFS} PDFs at once. Added the first ${remaining}, skipped ${files.length - remaining}.`,
-        );
-        incoming = files.slice(0, remaining);
-      }
-
-      const items = incoming.map(buildItem);
-      addFiles(items);
-      for (const item of items) void loadMetadata(item);
+      ingest(accepted);
     },
-    [addFiles, loadMetadata, currentCount],
+    [addRejected, ingest, roomLeft],
   );
 
   return (

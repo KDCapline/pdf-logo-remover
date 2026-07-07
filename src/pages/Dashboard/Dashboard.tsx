@@ -13,6 +13,7 @@ import { Toolbar } from "@/components/Toolbar/Toolbar";
 import { BulkProgress, useBulkProgressController } from "@/components/Progress/BulkProgress";
 import { PdfPreview } from "@/components/PDFPreview/PdfPreview";
 import { FileList } from "@/components/Queue/FileList";
+import { RejectedList } from "@/components/Queue/RejectedList";
 import { useAppStore } from "@/store/useAppStore";
 import {
   Card,
@@ -25,6 +26,7 @@ import { Separator } from "@/components/ui/separator";
 export function Dashboard() {
   const bulk = useBulkProgressController();
   const files = useAppStore((state) => state.files);
+  const rejectedCount = useAppStore((state) => state.rejectedFiles.length);
   const selectedFileId = useAppStore((state) => state.selectedFileId);
   const setSelectedFileId = useAppStore((state) => state.setSelectedFileId);
   const setHelpOpen = useAppStore((state) => state.setHelpOpen);
@@ -137,6 +139,14 @@ export function Dashboard() {
               <Toolbar bulk={bulk} />
               <BulkProgress bulk={bulk} />
             </div>
+
+            {rejectedCount > 0 && (
+              <Card>
+                <CardContent className="p-5">
+                  <RejectedList />
+                </CardContent>
+              </Card>
+            )}
           </section>
 
           <section className="flex min-h-0 flex-col gap-5">
