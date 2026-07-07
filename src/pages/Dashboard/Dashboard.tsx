@@ -30,8 +30,9 @@ export function Dashboard() {
   const selectedFileId = useAppStore((state) => state.selectedFileId);
   const setSelectedFileId = useAppStore((state) => state.setSelectedFileId);
   const setHelpOpen = useAppStore((state) => state.setHelpOpen);
-  const replacementRect = useAppStore((state) => state.replacementRect);
-  const clearReplacementRect = useAppStore((state) => state.clearReplacementRect);
+  const replacementRectsByPage = useAppStore((state) => state.replacementRectsByPage);
+  const clearReplacementRects = useAppStore((state) => state.clearReplacementRects);
+  const previewPageById = useAppStore((state) => state.previewPageById);
 
   useEffect(() => {
     if (selectedFileId == null && files.length > 0) {
@@ -46,6 +47,27 @@ export function Dashboard() {
     () => files.find((f) => f.id === selectedFileId) ?? null,
     [files, selectedFileId],
   );
+
+  const markedPageEntries = useMemo(
+    () =>
+      Object.entries(replacementRectsByPage)
+        .map(([page, rect]) => ({
+          pageIndex: Number.parseInt(page, 10),
+          rect,
+        }))
+        .filter((entry) => Number.isFinite(entry.pageIndex))
+        .sort((a, b) => a.pageIndex - b.pageIndex),
+    [replacementRectsByPage],
+  );
+
+  const currentPreviewPage =
+    selectedItem != null
+      ? (previewPageById[selectedItem.id] ?? 0)
+      : null;
+  const currentPageRect =
+    currentPreviewPage != null
+      ? replacementRectsByPage[currentPreviewPage]
+      : null;
 
   return (
     <div className="flex min-h-screen flex-col text-foreground">
@@ -102,26 +124,40 @@ export function Dashboard() {
                         Replacement area
                       </h3>
                     </div>
-                    {replacementRect && (
+                    {markedPageEntries.length > 0 && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={clearReplacementRect}
+                        onClick={clearReplacementRects}
                       >
-                        <Eraser className="mr-1 h-3.5 w-3.5" /> Clear
+                        <Eraser className="mr-1 h-3.5 w-3.5" /> Clear all
                       </Button>
                     )}
                   </div>
-                  {replacementRect ? (
-                    <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-accent/5 px-3.5 py-2.5">
-                      <p className="font-mono text-sm tabular-nums text-foreground">
-                        {Math.round(replacementRect.x)},{" "}
-                        {Math.round(replacementRect.y)} ·{" "}
-                        {Math.round(replacementRect.width)}×
-                        {Math.round(replacementRect.height)}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Applied to every page of every uploaded PDF.
+                  {markedPageEntries.length > 0 ? (
+                    <div className="space-y-2">
+                      <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-accent/5 px-3.5 py-2.5">
+                        <p className="text-xs text-muted-foreground">
+                          Marked on {markedPageEntries.length} page
+                          {markedPageEntries.length === 1 ? "" : "s"}:{" "}
+                          {markedPageEntries.map((e) => e.pageIndex + 1).join(", ")}
+                        </p>
+                        {currentPageRect && currentPreviewPage != null ? (
+                          <p className="mt-1 font-mono text-sm tabular-nums text-foreground">
+                            Page {currentPreviewPage + 1}:{" "}
+                            {Math.round(currentPageRect.x)},{" "}
+                            {Math.round(currentPageRect.y)} ·{" "}
+                            {Math.round(currentPageRect.width)}×
+                            {Math.round(currentPageRect.height)}
+                          </p>
+                        ) : currentPreviewPage != null ? (
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Page {currentPreviewPage + 1} is not marked yet.
+                          </p>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Only pages you mark in the preview are replaced. Navigate to each page and drag to mark it.
                       </p>
                     </div>
                   ) : (

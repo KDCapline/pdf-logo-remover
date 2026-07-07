@@ -23,7 +23,8 @@ export interface ToolbarProps {
 export function Toolbar({ bulk }: ToolbarProps) {
   const files = useAppStore((state) => state.files);
   const newLogo = useAppStore((state) => state.newLogo);
-  const replacementRect = useAppStore((state) => state.replacementRect);
+  const replacementRectsByPage = useAppStore((state) => state.replacementRectsByPage);
+  const hasMarkedPages = Object.keys(replacementRectsByPage).length > 0;
   const report = useAppStore((state) => state.report);
   const isProcessing = useAppStore((state) => state.isProcessing);
   const [zipping, setZipping] = useState<boolean>(false);
@@ -32,7 +33,7 @@ export function Toolbar({ bulk }: ToolbarProps) {
   const canReplace =
     files.length > 0 &&
     newLogo != null &&
-    replacementRect != null &&
+    hasMarkedPages &&
     !isProcessing;
   const processedFiles = files.filter((f) => f.status === "processed");
   const canDownload = processedFiles.length > 0 && !zipping;
@@ -43,8 +44,8 @@ export function Toolbar({ bulk }: ToolbarProps) {
       toast.error("Upload a new logo first.");
       return;
     }
-    if (!replacementRect) {
-      toast.error("Drag on the preview to mark where the new logo goes.");
+    if (!hasMarkedPages) {
+      toast.error("Drag on the preview to mark which pages to replace.");
       return;
     }
     if (files.length === 0) {
@@ -52,7 +53,7 @@ export function Toolbar({ bulk }: ToolbarProps) {
       return;
     }
     await bulk.start();
-  }, [bulk, files.length, newLogo, replacementRect]);
+  }, [bulk, files.length, newLogo, hasMarkedPages]);
 
   const onCancel = useCallback((): void => {
     bulk.cancel();

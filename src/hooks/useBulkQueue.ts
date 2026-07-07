@@ -69,9 +69,9 @@ export function useBulkQueue(
     const store = useAppStore.getState();
     const settings: ProcessingSettings = store.settings;
     const newLogo = store.newLogo;
-    const replacementRect = store.replacementRect;
+    const replacementRectsByPage = store.replacementRectsByPage;
 
-    if (!newLogo || !replacementRect) {
+    if (!newLogo || Object.keys(replacementRectsByPage).length === 0) {
       return;
     }
 
@@ -170,7 +170,7 @@ export function useBulkQueue(
           const report = await processFile(
             item,
             newLogo,
-            replacementRect,
+            replacementRectsByPage,
             signal,
           );
           onItemFinished(item, report);

@@ -10,7 +10,6 @@ import type {
 } from "@/types";
 import { loadPdf, renderPageToCanvas, getPageCount } from "@/services/pdfRenderer";
 import { replaceLogoInPdf } from "@/services/pdfEditor";
-import { findLogoPages } from "@/services/logoMatcher";
 import { releaseCanvas } from "@/utils/canvas";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -34,7 +33,7 @@ export function usePDFProcessor(): {
   processFile: (
     item: PDFFileItem,
     newLogo: LogoImage,
-    rect: Rectangle,
+    pageRects: Record<number, Rectangle>,
     signal: ProcessSignal,
   ) => Promise<ReportItem>;
   renderPageForPreview: (
@@ -51,7 +50,7 @@ export function usePDFProcessor(): {
     async (
       item: PDFFileItem,
       newLogo: LogoImage,
-      rect: Rectangle,
+      pageRects: Record<number, Rectangle>,
       signal: ProcessSignal,
     ): Promise<ReportItem> => {
       const updateFile = (patch: Partial<PDFFileItem>): void => {
@@ -63,53 +62,50 @@ export function usePDFProcessor(): {
           throw new Error("canceled");
         }
 
-        // Resolve selected pages (empty → all pages) so we can report progress
-        // and short-circuit on cancellation between pages.
+        const markedPages = Object.keys(pageRects)
+          .map((k) => Number.parseInt(k, 10))
+          .filter((i) => Number.isFinite(i))
+          .sort((a, b) => a - b);
+
+        if (markedPages.length === 0) {
+          return {
+            name: item.name,
+            status: "skipped",
+            reason: "No pages marked for replacement",
+          };
+        }
+
         const doc = await loadPdf(item.file);
         const pageCount = await getPageCount(doc);
         await doc.cleanup();
 
-        const candidatePages: number[] =
-          item.selectedPages && item.selectedPages.length > 0
-            ? item.selectedPages
-            : Array.from({ length: pageCount }, (_, i) => i);
+        // Only replace pages that exist in this PDF.
+        const applicableRects: Record<number, Rectangle> = {};
+        for (const pageIndex of markedPages) {
+          if (pageIndex >= 0 && pageIndex < pageCount) {
+            applicableRects[pageIndex] = pageRects[pageIndex];
+          }
+        }
 
         if (signal.canceled) {
           throw new Error("canceled");
         }
 
-        // Content-aware filter: only keep pages whose logo region actually
-        // matches the reference region drawn on the first page. This prevents
-        // covering text/graphics on pages that don't contain the logo.
-        const referencePage = candidatePages.includes(0) ? 0 : candidatePages[0];
-        const matchedPages = await findLogoPages(
-          item.file,
-          rect,
-          candidatePages,
-          referencePage,
-          signal,
-        );
-
-        if (signal.canceled) {
-          throw new Error("canceled");
-        }
-
-        if (matchedPages.length === 0) {
-          const report: ReportItem = {
+        if (Object.keys(applicableRects).length === 0) {
+          return {
             name: item.name,
             status: "skipped",
-            reason: "Logo not found on any page",
+            reason: "Marked pages are out of range for this PDF",
           };
-          return report;
         }
 
-        updateFile({ currentPage: matchedPages[0] ?? 0 });
+        const firstPage = Number.parseInt(Object.keys(applicableRects)[0] ?? "0", 10);
+        updateFile({ currentPage: firstPage });
 
         const { blob, matched } = await replaceLogoInPdf(
           item.file,
           newLogo,
-          rect,
-          matchedPages,
+          applicableRects,
           signal,
         );
 
@@ -121,20 +117,18 @@ export function usePDFProcessor(): {
         updateFile({ resultBlobUrl: blobUrl });
 
         if (matched === 0) {
-          const report: ReportItem = {
+          return {
             name: item.name,
             status: "skipped",
-            reason: "Logo not found on any page",
+            reason: "No pages were replaced",
           };
-          return report;
         }
 
-        const report: ReportItem = {
+        return {
           name: item.name,
           status: "processed",
-          reason: `Logo replaced on ${matched} of ${candidatePages.length} page${candidatePages.length === 1 ? "" : "s"}`,
+          reason: `Logo replaced on ${matched} page${matched === 1 ? "" : "s"}`,
         };
-        return report;
       } catch (err: unknown) {
         if (isAbortError(err)) {
           return { name: item.name, status: "error", reason: "canceled" };
